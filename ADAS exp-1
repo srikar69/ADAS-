@@ -1,0 +1,27 @@
+import cv2
+import numpy as np
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input, decode_predictions
+#load pretrained cnn
+model = MobileNetV2(weights = 'imagenet')
+#read an image
+image = cv2.imread("/content/10d2ebf027bd651f529d3d46cc06d212.jpeg")
+#resize the image
+img = cv2.resize(image, (224,224))
+#prepare the image
+x = np.expand_dims(img, axis=0)
+x= preprocess_input(x)
+#cnn prediction
+predictions = model.predict(x)
+
+print(decode_predictions(predictions, top=3)[0])
+
+#simulate brightness calculation
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+brightness = np.mean(gray)
+print("Ambient Brightness:" ,brightness)
+if brightness<80:
+  print("Headlights ON")
+else:
+  print("Headlights OFF")
+     
