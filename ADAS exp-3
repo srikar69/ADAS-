@@ -1,0 +1,196 @@
+import sys
+print(sys.executable)
+try:
+    from ultralytics import YOLO
+    print("Ultralytics is installed successfully!")
+except Exception as e:
+    print("Ultralytics is NOT installed.")
+    print(e)
+from ultralytics import YOLO
+import cv2
+import time
+import math
+
+# Load YOLO model
+model = YOLO("yolov8n.pt")
+
+# Open video
+cap = cv2.VideoCapture(r"C:\Users\priya\Downloads\Program-3 image.mp4")
+
+if not cap.isOpened():
+    print("Error: Could not open program-3 image.mp4")
+else:
+    print("Video opened successfully.")
+
+FOCAL_LENGTH = 700
+KNOWN_WIDTH = 1.8
+
+previous_distance = None
+previous_time = None
+smoothed_ttc = None
+
+
+def estimated_distance(box_width):
+    box_width = max(box_width, 1)
+    return (KNOWN_WIDTH * FOCAL_LENGTH) / box_width
+
+
+while cap.isOpened():
+
+    ret, frame = cap.read()
+
+    if not ret:
+        break
+
+    current_time = time.time()
+
+    # YOLO detection
+    results = model(frame, verbose=False)[0]
+
+    best_distance = None
+    best_box = None
+
+    # Find the nearest vehicle
+    for box in results.boxes:
+
+        class_id = int(box.cls[0])
+        class_name = model.names[class_id]
+
+        if class_name not in [
+            "car",
+            "truck",
+            "bus",
+            "motorcycle"
+        ]:
+            continue
+
+        x1, y1, x2, y2 = map(
+            int,
+            box.xyxy[0]
+        )
+
+        box_width = x2 - x1
+
+        distance = estimated_distance(box_width)
+
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_box = (x1, y1, x2, y2)
+
+    # Default TTC
+    displayed_ttc = float("inf")
+
+    if best_distance is not None:
+
+        if previous_distance is not None and previous_time is not None:
+
+            dt = current_time - previous_time
+
+            if dt > 0:
+
+                relative_speed = (
+                    previous_distance - best_distance
+                ) / dt
+
+                if relative_speed > 0.1:
+
+                    ttc = best_distance / relative_speed
+
+                    if smoothed_ttc is None:
+                        smoothed_ttc = ttc
+                    else:
+                        smoothed_ttc = (
+                            0.7 * smoothed_ttc
+                            + 0.3 * ttc
+                        )
+
+                else:
+                    smoothed_ttc = None
+
+        previous_distance = best_distance
+        previous_time = current_time
+
+        # Draw vehicle box
+        if best_box is not None:
+
+            x1, y1, x2, y2 = best_box
+
+            cv2.rectangle(
+                frame,
+                (x1, y1),
+                (x2, y2),
+                (0, 255, 255),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"Distance: {best_distance:.1f} m",
+                (x1, max(y1 - 10, 20)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 0),
+                2
+            )
+
+    if smoothed_ttc is not None:
+        displayed_ttc = smoothed_ttc
+
+    # Warning level
+    if displayed_ttc < 2:
+
+        warning = "CRITICAL: COLLISION WARNING!"
+        warning_color = (0, 0, 255)
+
+    elif displayed_ttc < 4:
+
+        warning = "CAUTION: REDUCE SPEED"
+        warning_color = (0, 165, 255)
+
+    else:
+
+        warning = "SAFE"
+        warning_color = (0, 255, 0)
+
+    # Display warning
+    cv2.putText(
+        frame,
+        warning,
+        (25, 45),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        warning_color,
+        2
+    )
+
+    # Display TTC
+    if math.isinf(displayed_ttc):
+        ttc_text = "TTC: N/A"
+    else:
+        ttc_text = f"TTC: {displayed_ttc:.2f} s"
+
+    cv2.putText(
+        frame,
+        ttc_text,
+        (25, 85),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2
+    )
+
+    # Show video
+    cv2.imshow(
+        "Forward Collision Warning System",
+        frame
+    )
+
+    # Press Q to stop
+    if cv2.waitKey(1) & 0xFF == ord("q"):
+        break
+
+
+cap.release()
+cv2.destroyAllWindows()
+
+print("Processing completed.")
